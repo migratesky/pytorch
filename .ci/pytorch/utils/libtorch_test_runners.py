@@ -11,6 +11,7 @@ import subprocess
 from typing import List, Optional
 
 from .test_execution import PyTorchTestRunner
+from .shell_utils import run_command_with_output
 
 
 class LibTorchTestRunner(PyTorchTestRunner):
@@ -50,23 +51,44 @@ class LibTorchTestRunner(PyTorchTestRunner):
         Run LibTorch JIT tests.
         
         This replaces the test_libtorch_jit shell function.
+        Runs C++ JIT and lazy tensor tests with proper setup/teardown.
         """
         self.logger.info("Running LibTorch JIT tests")
         
-        # Get extra options from environment
-        extra_options = os.environ.get("PYTHON_TEST_EXTRA_OPTION", "")
-        
-        # LibTorch JIT test files
-        test_files = [
-            "cpp/test_jit.py"
-        ]
-        
-        # Run LibTorch JIT tests
-        success = self.run_test_suite(
-            test_files=test_files,
-            extra_options=extra_options,
-            upload_artifacts=True
-        )
+        try:
+            # Step 1: Setup - Prepare the model used by test_jit
+            self.logger.info("Setting up JIT test models")
+            setup_cmd = "python cpp/jit/tests_setup.py setup"
+            success = run_command_with_output(setup_cmd, cwd="test")[0]
+            if not success:
+                self.logger.error("Failed to setup JIT test models")
+                return False
+            
+            # Step 2: Run C++ JIT and lazy tensor tests
+            self.logger.info("Running C++ JIT and lazy tensor tests")
+            test_cmd = "python test/run_test.py --cpp --verbose -i cpp/test_jit cpp/test_lazy"
+            
+            # Add CUDA-specific configuration
+            if hasattr(self, 'build_env') and self.build_env and "cuda" in self.build_env.lower() and getattr(self, 'test_config', '') != "nogpu":
+                # Enable CUDA for lazy tensor tests
+                env_vars = {"LTC_TS_CUDA": "1"}
+                success = run_command_with_output(test_cmd, env=env_vars)[0]
+            else:
+                # Skip CUDA tests when CUDA is not available
+                test_cmd += ' -k "not CUDA"'
+                success = run_command_with_output(test_cmd)[0]
+            
+            if not success:
+                self.logger.error("LibTorch JIT tests failed")
+                return False
+                
+        finally:
+            # Step 3: Cleanup - Always run teardown even if tests failed
+            self.logger.info("Cleaning up JIT test artifacts")
+            cleanup_cmd = "python cpp/jit/tests_setup.py shutdown"
+            cleanup_success = run_command_with_output(cleanup_cmd, cwd="test")[0]
+            if not cleanup_success:
+                self.logger.warning("Failed to cleanup JIT test artifacts")
         
         # Check git status
         if success:
