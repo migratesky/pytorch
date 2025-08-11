@@ -47,38 +47,59 @@ def run_python_tests_via_registry(dry_run=False, verbose=False):
         test_suite = registry.get_test_suite(env_config)
         
         if test_suite is None:
-            logging.error("No test suite selected")
-            return False
+            logging.warning("No test suite selected from registry, using simple runner")
+            return run_python_tests_via_simple_runner(dry_run, verbose)
         
         logging.info(f"Selected test suite: {test_suite.name}")
         
-        # Run the test suite
-        return test_suite.run(env_config, dry_run=dry_run)
+        # Run the selected test suite
+        result = test_suite.run(env_config, dry_run=dry_run)
+        if result:
+            logging.info("Test registry execution completed successfully")
+        return result
         
     except ImportError as e:
-        logging.warning(f"Failed to import test registry modules: {e}")
+        logging.warning(f"Could not import test registry modules: {e}")
         logging.info("Falling back to simple test runner")
         return run_python_tests_via_simple_runner(dry_run, verbose)
     except Exception as e:
-        logging.error(f"Failed to run tests via registry: {e}")
-        return False
+        logging.warning(f"Test registry execution failed: {e}")
+        logging.info("Falling back to simple test runner")
+        return run_python_tests_via_simple_runner(dry_run, verbose)
 
 def run_python_tests_via_simple_runner(dry_run=False, verbose=False):
     """Run tests by delegating to simple_test_runner.py as fallback."""
-    cmd = [sys.executable, str(ci_dir / "simple_test_runner.py")]
-    if dry_run:
-        cmd.append("--dry-run")
-    if verbose:
-        cmd.append("--verbose")
-    
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, cwd=ci_dir)
-        print(result.stdout)
-        if result.stderr:
-            print(result.stderr, file=sys.stderr)
-        return result.returncode == 0
+        # Import and run the simple test runner
+        from simple_test_runner import main as simple_main
+        
+        # Set up arguments for the simple runner
+        import sys
+        original_argv = sys.argv.copy()
+        sys.argv = ['simple_test_runner.py']
+        if dry_run:
+            sys.argv.append('--dry-run')
+        if verbose:
+            sys.argv.append('--verbose')
+        
+        logging.info("Running tests via simple_test_runner.py")
+        
+        # Run the simple test runner
+        result = simple_main()
+        
+        # Restore original argv
+        sys.argv = original_argv
+        
+        if result == 0:
+            logging.info("Simple test runner completed successfully")
+            return True
+        else:
+            logging.error(f"Simple test runner failed with exit code: {result}")
+            return False
     except Exception as e:
-        logging.error(f"Failed to run simple_test_runner.py: {e}")
+        logging.error(f"Simple test runner failed: {e}")
+        import traceback
+        logging.debug(traceback.format_exc())
         return False
 
 
@@ -97,27 +118,29 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description='PyTorch CI Python Test Runner',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__
+        epilog="""Environment Variables:
+    BUILD_ENVIRONMENT       Build environment identifier
+    TEST_CONFIG            Test configuration to run
+    SHARD_NUMBER           Current shard number (1-based)
+    NUM_TEST_SHARDS        Total number of shards
+    USE_PYTHON_TEST_RUNNER Force Python test runner (disable shell fallback)
+    NO_SHELL_FALLBACK      Disable shell script fallback
+    CONTINUE_THROUGH_ERROR Continue on test failures
+    VERBOSE_TEST_LOGS      Enable verbose logging
+    NO_TEST_TIMEOUT        Disable test timeouts
+        """
     )
     
-    parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help='Show what would be executed without running tests'
-    )
-    
-    parser.add_argument(
-        '--verbose',
-        action='store_true',
-        help='Enable verbose logging'
-    )
-    
-    parser.add_argument(
-        '--fallback-on-error',
-        action='store_true',
-        default=True,
-        help='Fallback to shell script on Python test runner errors'
-    )
+    parser.add_argument('--dry-run', action='store_true',
+                       help='Show what would be run without executing')
+    parser.add_argument('--verbose', action='store_true',
+                       help='Enable verbose output')
+    parser.add_argument('--fallback-on-error', action='store_true', default=False,
+                       help='Fallback to shell script on Python runner errors')
+    parser.add_argument('--no-fallback', dest='fallback_on_error', action='store_false',
+                       help='Do not fallback to shell script on errors')
+    parser.add_argument('--force-python', action='store_true',
+                       help='Force Python test runner (same as USE_PYTHON_TEST_RUNNER=1)')
     
     return parser.parse_args()
 
@@ -186,12 +209,21 @@ def main() -> int:
     logging.info("PyTorch CI Python Test Runner")
     logging.info("=" * 50)
     
+    # Force Python runner if USE_PYTHON_TEST_RUNNER is set
+    force_python = os.environ.get('USE_PYTHON_TEST_RUNNER', '').lower() in ('1', 'true')
+    
+    # Check if we should skip shell fallback entirely
+    no_shell_fallback = force_python or args.dry_run or os.environ.get('NO_SHELL_FALLBACK', '').lower() in ('1', 'true')
+    
+    if force_python:
+        logging.info("USE_PYTHON_TEST_RUNNER=1: Forcing Python test runner")
+    
     try:
         # Check environment configuration (for logging purposes)
         try:
             check_environment()
-        except Exception:
-            logging.info("Environment check had issues, continuing with delegation approach")
+        except Exception as e:
+            logging.info(f"Environment check had issues: {e}, continuing with Python runner")
         
         # Run Python-based tests
         success = run_python_tests(dry_run=args.dry_run, verbose=args.verbose)
@@ -200,20 +232,30 @@ def main() -> int:
             logging.info("All tests completed successfully")
             return 0
         else:
-            logging.error("Some tests failed")
-            if args.fallback_on_error:
+            logging.error("Python test runner reported failure")
+            
+            # Only fallback to shell if explicitly allowed and not in dry-run
+            if args.fallback_on_error and not no_shell_fallback:
                 logging.info("Attempting fallback to shell script")
                 return fallback_to_shell(sys.argv[1:])
-            return 1
+            else:
+                if no_shell_fallback:
+                    logging.info("Shell fallback disabled, returning Python runner result")
+                return 1
             
     except Exception as e:
         logging.error(f"Python test runner failed: {e}")
+        import traceback
+        logging.debug(traceback.format_exc())
         
-        if args.fallback_on_error:
+        # Only fallback to shell if explicitly allowed and not in dry-run
+        if args.fallback_on_error and not no_shell_fallback:
             logging.info("Attempting fallback to shell script due to error")
             return fallback_to_shell(sys.argv[1:])
-        
-        return 1
+        else:
+            if no_shell_fallback:
+                logging.info("Shell fallback disabled, returning error")
+            return 1
 
 
 if __name__ == "__main__":
