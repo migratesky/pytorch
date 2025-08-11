@@ -1,10 +1,8 @@
 #!/bin/bash
-"""
-Local testing script for PyTorch CI Python test runner.
-
-This script sets up the proper environment variables for local testing
-and provides a convenient interface to test the Python runner locally.
-"""
+# Local testing script for PyTorch CI Python test runner.
+#
+# This script sets up the proper environment variables for local testing
+# and provides a convenient interface to test the Python runner locally.
 
 set -e
 

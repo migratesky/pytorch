@@ -31,7 +31,7 @@ class TestSuite(ABC):
         pass
     
     @abstractmethod
-    def run(self, env_config: EnvironmentConfig) -> bool:
+    def run(self, env_config: EnvironmentConfig, dry_run: bool = False) -> bool:
         """Execute the test suite. Returns True if all tests pass."""
         pass
     
@@ -88,7 +88,7 @@ class ConditionalTestSuite(TestSuite):
         """Get list of test function names."""
         return self.test_functions.copy()
     
-    def run(self, env_config: EnvironmentConfig) -> bool:
+    def run(self, env_config: EnvironmentConfig, dry_run: bool = False) -> bool:
         """Run the test suite by calling shell functions."""
         from ..utils.shell_utils import source_and_run, get_ci_dir
         
@@ -97,6 +97,10 @@ class ConditionalTestSuite(TestSuite):
         
         for test_func in self.test_functions:
             self.logger.info(f"Running {test_func}")
+            
+            if dry_run:
+                self.logger.info(f"DRY RUN - Would execute: {test_func}")
+                continue
             
             # For transitional period, call the original shell functions
             result = source_and_run(
@@ -139,7 +143,7 @@ class DefaultTestSuite(TestSuite):
         """Get list of default test names."""
         return self.test_functions.copy()
     
-    def run(self, env_config: EnvironmentConfig) -> bool:
+    def run(self, env_config: EnvironmentConfig, dry_run: bool = False) -> bool:
         """Run the default test suite."""
         from ..utils.shell_utils import run_command
         
@@ -147,6 +151,10 @@ class DefaultTestSuite(TestSuite):
         
         for test_func in self.test_functions:
             self.logger.info(f"Running {test_func}")
+            
+            if dry_run:
+                self.logger.info(f"DRY RUN - Would execute: {test_func}")
+                continue
             
             # For now, we'll call the original shell functions
             # In a full migration, these would be converted to Python
