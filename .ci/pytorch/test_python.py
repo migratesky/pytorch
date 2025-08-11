@@ -33,9 +33,38 @@ sys.path.insert(0, str(ci_dir.parent))
 # Import required modules
 import subprocess
 
-# For now, delegate to the working simple_test_runner.py
+def run_python_tests_via_registry(dry_run=False, verbose=False):
+    """Run tests using the test registry system."""
+    try:
+        from test_config.environment import EnvironmentConfig
+        from test_config.test_registry import TestRegistry
+        
+        # Create environment configuration
+        env_config = EnvironmentConfig()
+        
+        # Create test registry and select appropriate test suite
+        registry = TestRegistry()
+        test_suite = registry.get_test_suite(env_config)
+        
+        if test_suite is None:
+            logging.error("No test suite selected")
+            return False
+        
+        logging.info(f"Selected test suite: {test_suite.name}")
+        
+        # Run the test suite
+        return test_suite.run(env_config, dry_run=dry_run)
+        
+    except ImportError as e:
+        logging.warning(f"Failed to import test registry modules: {e}")
+        logging.info("Falling back to simple test runner")
+        return run_python_tests_via_simple_runner(dry_run, verbose)
+    except Exception as e:
+        logging.error(f"Failed to run tests via registry: {e}")
+        return False
+
 def run_python_tests_via_simple_runner(dry_run=False, verbose=False):
-    """Run tests by delegating to simple_test_runner.py which has working imports."""
+    """Run tests by delegating to simple_test_runner.py as fallback."""
     cmd = [sys.executable, str(ci_dir / "simple_test_runner.py")]
     if dry_run:
         cmd.append("--dry-run")
@@ -51,9 +80,6 @@ def run_python_tests_via_simple_runner(dry_run=False, verbose=False):
     except Exception as e:
         logging.error(f"Failed to run simple_test_runner.py: {e}")
         return False
-
-# Set flag to use simple runner delegation
-USE_SIMPLE_RUNNER_DELEGATION = True
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -123,8 +149,8 @@ def check_environment():
 def run_python_tests(dry_run: bool = False, verbose: bool = False) -> bool:
     """Run tests using the Python test infrastructure."""
     try:
-        # Use delegation to simple_test_runner.py which has working imports
-        return run_python_tests_via_simple_runner(dry_run=dry_run, verbose=verbose)
+        # Try the registry-based approach first
+        return run_python_tests_via_registry(dry_run=dry_run, verbose=verbose)
     except Exception as e:
         logging.error(f"Failed to run Python tests: {e}")
         return False
@@ -167,7 +193,7 @@ def main() -> int:
         except Exception:
             logging.info("Environment check had issues, continuing with delegation approach")
         
-        # Run Python-based tests using delegation approach
+        # Run Python-based tests
         success = run_python_tests(dry_run=args.dry_run, verbose=args.verbose)
         
         if success:
