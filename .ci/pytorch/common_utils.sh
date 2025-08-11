@@ -108,11 +108,20 @@ function pip_build_and_install() {
 }
 
 function pip_install() {
-  # retry 3 times
-  pip_install_pkg="python3 -m pip install --progress-bar off"
-  ${pip_install_pkg} "$@" || \
+  # Use safe pip installer that handles externally-managed environments
+  local pip_helper="$(dirname "${BASH_SOURCE[0]}")/utils/pip_install_helper.py"
+  
+  if [[ -f "$pip_helper" ]]; then
+    echo "Using safe pip installer for externally-managed environments"
+    python3 "$pip_helper" "$@" --verbose
+  else
+    echo "Fallback to standard pip install (retry 3 times)"
+    # retry 3 times
+    pip_install_pkg="python3 -m pip install --progress-bar off"
     ${pip_install_pkg} "$@" || \
-    ${pip_install_pkg} "$@"
+      ${pip_install_pkg} "$@" || \
+      ${pip_install_pkg} "$@"
+  fi
 }
 
 function pip_uninstall() {
