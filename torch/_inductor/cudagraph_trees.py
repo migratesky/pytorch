@@ -2360,6 +2360,13 @@ class CUDAGraphTreeManager:
         if self.user_invoked_mark_step():
             return True
 
+        # Improved heuristic: Only start new generation if we're not in a composition
+        # of multiple torch.compile functions that might share tensor outputs
+        if self.current_node is not None and not self.current_node.all_outputs_are_dead():
+            # Check if any outputs are still live - if so, be more conservative
+            # about starting a new generation to avoid tensor overwrites
+            return False
+
         return not self.running_forwards_with_pending_backwards
 
     def in_new_torch_compile_invocation(self) -> bool:
@@ -2469,6 +2476,12 @@ class CUDAGraphTreeManager:
         assert self.current_node is not None
         # TODO: we could also allow the these weak refs to continue to be allocated,
         # but that adds some complications.
+
+        # Improved safety: Check if any tensors are still being used by other functions
+        # before deallocating to prevent tensor overwrite issues
+        if not self.current_node.all_outputs_are_dead():
+            # Skip deallocation if outputs are still live to prevent overwrites
+            return
 
         stor_stack_trace: dict[int, Optional[str]] = {}
         for node in self.current_node._path_from_root:
