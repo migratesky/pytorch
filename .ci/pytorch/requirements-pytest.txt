@@ -10,6 +10,12 @@ pytest-xdist>=3.0.0
 # Test retries (replaces custom retry logic)
 pytest-rerunfailures>=11.0.0
 
+# Required by PyTorch's test runner (imported by torch.testing._internal.common_utils)
+expecttest>=0.3.0
+
+# Required by run_test.py dependency check in CI
+pytest-flakefinder>=1.0.0
+
 # HTML reporting (better than custom reporting)
 pytest-html>=3.0.0
 
@@ -24,3 +30,6 @@ pytest-memray>=1.0.0
 
 # Timeout handling
 pytest-timeout>=2.0.0
+
+# Plugin to run C++ (gtest/boost) tests via pytest when available
+pytest-cpp>=3.0.0
