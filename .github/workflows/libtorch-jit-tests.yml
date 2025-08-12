@@ -23,9 +23,10 @@ jobs:
         with:
           python-version: '3.11'
           
-      - name: Install pytest dependencies
+      - name: Install dependencies
         run: |
           pip install -r .ci/pytorch/requirements-pytest.txt
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           
       - name: LibTorch JIT Tests
         run: python .ci/pytorch/run_libtorch_jit_simple.py
