@@ -32,4 +32,4 @@ pytest-memray>=1.0.0
 pytest-timeout>=2.0.0
 
 # Plugin to run C++ (gtest/boost) tests via pytest when available
-pytest-cpp>=3.0.0
+pytest-cpp==2.6.0
