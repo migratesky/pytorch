@@ -1,18 +1,15 @@
-# GitHub Actions workflow example for LibTorch JIT tests
-# This shows how the new pytest implementation integrates with CI
+# GitHub Actions workflow for LibTorch JIT tests
+# Runs the pytest-based LibTorch JIT tests on pull requests
 
 name: LibTorch JIT Tests (pytest)
 
 on:
-  workflow_call:
-    inputs:
-      build-environment:
-        required: true
-        type: string
-      test-config:
-        required: false
-        type: string
-        default: ""
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
 
 jobs:
   libtorch-jit-tests:
@@ -33,8 +30,8 @@ jobs:
       - name: LibTorch JIT Tests
         run: python .ci/pytorch/run_libtorch_jit_simple.py
         env:
-          BUILD_ENVIRONMENT: ${{ inputs.build-environment }}
-          TEST_CONFIG: ${{ inputs.test-config }}
+          BUILD_ENVIRONMENT: "linux-jammy-py3.11-gcc11"
+          TEST_CONFIG: "default"
           
       - name: Upload Test Results
         uses: actions/upload-artifact@v3
