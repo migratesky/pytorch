@@ -1,0 +1,54 @@
+# GitHub Actions workflow example for LibTorch JIT tests
+# This shows how the new pytest implementation integrates with CI
+
+name: LibTorch JIT Tests (pytest)
+
+on:
+  workflow_call:
+    inputs:
+      build-environment:
+        required: true
+        type: string
+      test-config:
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  libtorch-jit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PyTorch
+        uses: actions/checkout@v4
+        
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Install pytest dependencies
+        run: |
+          pip install -r .ci/pytorch/requirements-pytest.txt
+          
+      - name: LibTorch JIT Tests
+        run: python .ci/pytorch/run_libtorch_jit_simple.py
+        env:
+          BUILD_ENVIRONMENT: ${{ inputs.build-environment }}
+          TEST_CONFIG: ${{ inputs.test-config }}
+          
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: libtorch-jit-test-results
+          path: |
+            test/test-reports/libtorch_jit_results.xml
+            test/test-reports/*.log
+            
+      - name: Publish Test Results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: LibTorch JIT Tests
+          path: test/test-reports/libtorch_jit_results.xml
+          reporter: java-junit
