@@ -1,0 +1,96 @@
+name: fork-linux-cuda12.8-cudnn9-py3.9-clang12-build
+
+on:
+  workflow_dispatch:
+  # Uncomment if you want this to run on PRs/branches in your fork
+  # pull_request:
+  #   branches: [ "**" ]
+  # push:
+  #   branches: [ "**" ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: linux-jammy-cuda12.8-cudnn9-py3.9-clang12
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+
+    env:
+      BUILD_ENVIRONMENT: linux-jammy-cuda12.8-cudnn9-py3.9-clang12
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Calculate docker image
+        id: calculate-docker-image
+        uses: pytorch/test-infra/.github/actions/calculate-docker-image@main
+        with:
+          docker-image-name: ci-image:pytorch-linux-jammy-cuda12.8-cudnn9-py3.9-clang12
+
+      - name: Pull GHCR mirror of CI image
+        env:
+          ECR_DOCKER_IMAGE: ${{ steps.calculate-docker-image.outputs.docker-image }}
+        run: |
+          set -euxo pipefail
+          tag=${ECR_DOCKER_IMAGE##*:}
+          GHCR_TAG=${tag/:/-}
+          echo "Using GHCR tag: ${GHCR_TAG}"
+          docker pull ghcr.io/pytorch/ci-image:${GHCR_TAG}
+          echo "DOCKER_IMAGE=ghcr.io/pytorch/ci-image:${GHCR_TAG}" >> "$GITHUB_ENV"
+
+      - name: Parse ref
+        id: parse-ref
+        run: .github/scripts/parse_ref.py
+
+      - name: Build (inside container)
+        env:
+          DOCKER_IMAGE: ${{ env.DOCKER_IMAGE }}
+          BUILD_ENVIRONMENT: ${{ env.BUILD_ENVIRONMENT }}
+          BRANCH: ${{ steps.parse-ref.outputs.branch }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SHA1: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euxo pipefail
+          # Launch container detached, mount workspace
+          container_name=$(docker run \
+            -e BUILD_ENVIRONMENT \
+            -e BRANCH \
+            -e PR_NUMBER \
+            -e SHA1 \
+            --security-opt seccomp=unconfined \
+            --cap-add=SYS_PTRACE \
+            --tty \
+            --detach \
+            -v "${GITHUB_WORKSPACE}:/var/lib/jenkins/workspace" \
+            -w /var/lib/jenkins/workspace \
+            "${DOCKER_IMAGE}" \
+            bash -lc "sleep 12h" \
+          )
+
+          # Execute the repo's build script
+          docker exec -t "${container_name}" bash -lc '.ci/pytorch/build.sh'
+
+          # Stop container (best-effort)
+          docker stop "${container_name}" || true
+
+      - name: Archive artifacts into zip (best-effort)
+        run: |
+          set -euxo pipefail
+          zip -1 -r artifacts.zip dist/ build/custom_test_artifacts build/lib build/bin .additional_ci_files || true
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-jammy-cuda12.8-cudnn9-py3.9-clang12
+          path: |
+            artifacts.zip
+            dist/**
+            build/custom_test_artifacts/**
+            build/lib/**
+            build/bin/**
+            .additional_ci_files/**
+          if-no-files-found: warn
+          retention-days: 7
