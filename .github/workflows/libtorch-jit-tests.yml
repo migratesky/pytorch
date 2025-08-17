@@ -1,0 +1,52 @@
+# GitHub Actions workflow for LibTorch JIT tests
+# Runs the pytest-based LibTorch JIT tests on pull requests
+
+name: LibTorch JIT Tests (pytest)
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  libtorch-jit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PyTorch
+        uses: actions/checkout@v4
+        
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Install dependencies
+        run: |
+          pip install -r .ci/pytorch/requirements-pytest.txt
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          
+      - name: LibTorch JIT Tests
+        run: python .ci/pytorch/run_libtorch_jit_simple.py
+        env:
+          BUILD_ENVIRONMENT: "linux-jammy-py3.11-gcc11"
+          TEST_CONFIG: "default"
+          
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: libtorch-jit-test-results
+          path: |
+            test/test-reports/libtorch_jit_results.xml
+            test/test-reports/*.log
+            
+      - name: Publish Test Results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: LibTorch JIT Tests
+          path: test/test-reports/libtorch_jit_results.xml
+          reporter: java-junit
