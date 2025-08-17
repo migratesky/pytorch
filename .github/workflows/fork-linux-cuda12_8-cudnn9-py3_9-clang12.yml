@@ -23,23 +23,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Calculate docker image
-        id: calculate-docker-image
-        uses: pytorch/test-infra/.github/actions/calculate-docker-image@main
         with:
-          docker-image-name: ci-image:pytorch-linux-jammy-cuda12.8-cudnn9-py3.9-clang12
+          # Calculate-docker-image inspects HEAD~ and prior commits; ensure history exists
+          fetch-depth: 0
 
-      - name: Pull GHCR mirror of CI image
-        env:
-          ECR_DOCKER_IMAGE: ${{ steps.calculate-docker-image.outputs.docker-image }}
+      - name: Compute GHCR CI image tag
         run: |
           set -euxo pipefail
-          tag=${ECR_DOCKER_IMAGE##*:}
-          GHCR_TAG=${tag/:/-}
+          SHA=${{ github.sha }}
+          TAG="ci-image:pytorch-linux-jammy-cuda12.8-cudnn9-py3.9-clang12-${SHA}"
+          GHCR_TAG="${TAG/:/-}"
           echo "Using GHCR tag: ${GHCR_TAG}"
-          docker pull ghcr.io/pytorch/ci-image:${GHCR_TAG}
           echo "DOCKER_IMAGE=ghcr.io/pytorch/ci-image:${GHCR_TAG}" >> "$GITHUB_ENV"
+
+      - name: Pull CI image from GHCR
+        run: |
+          set -euxo pipefail
+          docker pull "${DOCKER_IMAGE}"
 
       - name: Parse ref
         id: parse-ref
