@@ -1,0 +1,120 @@
+name: pytest-migration-in-ci-image
+
+on:
+  workflow_dispatch:
+    inputs:
+      use_built_wheel:
+        description: "Install wheel artifact from previous build (if available) instead of pip installing torch cpu"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    name: pytest-migration (ci-image linux-jammy-cuda12.8-cudnn9-py3.9-clang12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      # Match the CI image you built with
+      DOCKER_IMAGE_NAME: ci-image:pytorch-linux-jammy-cuda12.8-cudnn9-py3.9-clang12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Calculate docker image
+        id: calculate-docker-image
+        uses: pytorch/test-infra/.github/actions/calculate-docker-image@main
+        with:
+          docker-image-name: ${{ env.DOCKER_IMAGE_NAME }}
+
+      - name: Pull GHCR mirror of CI image
+        env:
+          ECR_DOCKER_IMAGE: ${{ steps.calculate-docker-image.outputs.docker-image }}
+        run: |
+          set -euxo pipefail
+          tag=${ECR_DOCKER_IMAGE##*:}
+          GHCR_TAG=${tag/:/-}
+          echo "Using GHCR tag: ${GHCR_TAG}"
+          docker pull ghcr.io/pytorch/ci-image:${GHCR_TAG}
+          echo "DOCKER_IMAGE=ghcr.io/pytorch/ci-image:${GHCR_TAG}" >> "$GITHUB_ENV"
+
+      - name: Start container
+        id: start
+        env:
+          DOCKER_IMAGE: ${{ env.DOCKER_IMAGE }}
+        run: |
+          set -euxo pipefail
+          container_name=$(docker run \
+            --security-opt seccomp=unconfined \
+            --cap-add=SYS_PTRACE \
+            --tty \
+            --detach \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            "${DOCKER_IMAGE}" \
+            bash -lc "sleep 6h")
+          echo "container_name=${container_name}" >> "$GITHUB_OUTPUT"
+
+      - name: Install test deps and torch
+        if: inputs.use_built_wheel == 'false'
+        run: |
+          set -euxo pipefail
+          docker exec -t "${{ steps.start.outputs.container_name }}" bash -lc "python3 -m pip install --upgrade pip"
+          docker exec -t "${{ steps.start.outputs.container_name }}" bash -lc "python3 -m pip install -r tests/pytest_migration/requirements-test.txt"
+          docker exec -t "${{ steps.start.outputs.container_name }}" bash -lc "python3 -m pip install --index-url https://download.pytorch.org/whl/cpu torch"
+
+      - name: (Optional) Download and install built wheel artifact
+        if: inputs.use_built_wheel == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-jammy-cuda12.8-cudnn9-py3.9-clang12
+          path: ./downloaded_artifacts
+
+      - name: Install wheel from artifact (if present)
+        if: inputs.use_built_wheel == 'true'
+        run: |
+          set -euxo pipefail
+          # Unzip and find a torch wheel to install
+          if [ -f artifacts.zip ]; then unzip -o artifacts.zip -d downloaded_artifacts || true; fi
+          wheel=$(ls downloaded_artifacts/dist/torch-*.whl 2>/dev/null | head -n1 || true)
+          if [ -z "$wheel" ]; then
+            echo "No torch wheel found in artifacts; falling back to CPU torch from PyTorch index"
+            docker exec -t "${{ steps.start.outputs.container_name }}" bash -lc "python3 -m pip install --index-url https://download.pytorch.org/whl/cpu torch"
+          else
+            echo "Installing wheel: $wheel"
+            docker exec -t "${{ steps.start.outputs.container_name }}" bash -lc "python3 -m pip install --upgrade pip"
+            docker exec -t "${{ steps.start.outputs.container_name }}" bash -lc "python3 -m pip install -r tests/pytest_migration/requirements-test.txt"
+            docker exec -t "${{ steps.start.outputs.container_name }}" bash -lc "python3 -m pip install '$wheel'"
+          fi
+
+      - name: Run pytest-migration
+        run: |
+          set -euxo pipefail
+          docker exec -t "${{ steps.start.outputs.container_name }}" bash -lc "mkdir -p test-results"
+          docker exec -t "${{ steps.start.outputs.container_name }}" bash -lc "pytest -c tests/pytest_migration/pytest.ini tests/pytest_migration -v"
+
+      - name: Collect results
+        if: always()
+        run: |
+          set -euxo pipefail
+          # If tests generate artifacts, they will be inside the workspace mount
+          ls -la test-results || true
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-migration-results
+          path: |
+            test-results/**
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Stop container
+        if: always()
+        run: |
+          docker stop "${{ steps.start.outputs.container_name }}" || true
