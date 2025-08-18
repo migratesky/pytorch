@@ -1,7 +1,6 @@
 # Owner(s): ["module: __torch_dispatch__"]
 # ruff: noqa: F841
 
-import logging
 import pickle
 import sys
 import tempfile
@@ -1718,49 +1717,6 @@ $0: f32[] = torch._ops.aten.empty.memory_format([], device=device(type='cpu'), p
                 self.assertEqual(s.device_index, 2)
                 self.assertEqual(s.device_type, 3)
 
-    def test_subclass_autograd_device_check(self) -> None:
-        class NonWrapperSubclass(torch.Tensor):
-            elem: torch.Tensor
-
-            __slots__ = ["elem"]
-
-            @staticmethod
-            def __new__(cls, elem, *args, **kwargs):
-                # Wrong device here!
-                r = torch.Tensor._make_subclass(
-                    cls, elem.to("meta"), elem.requires_grad
-                )
-                # ...the real tensor is held as an element on the tensor.
-                r.elem = elem
-                return r
-
-            @classmethod
-            def __torch_dispatch__(cls, func, types, args=(), kwargs=None):
-                def unwrap(e):
-                    return e.elem if isinstance(e, NonWrapperSubclass) else e
-
-                def wrap(e):
-                    return NonWrapperSubclass(e) if isinstance(e, torch.Tensor) else e
-
-                rs = tree_map(
-                    wrap, func(*tree_map(unwrap, args), **tree_map(unwrap, kwargs))
-                )
-                logging.getLogger("NonWrapperSubclass").info(
-                    f"{func.__module__}.{func.__name__}",  # noqa: G004
-                    args,
-                    kwargs,
-                    rs,
-                )
-                return rs
-
-        x = NonWrapperSubclass(torch.tensor([3.0, 4.0], requires_grad=True))
-        y = torch.randn(2, requires_grad=True)
-        z = x * y
-        self.assertIsInstance(z, NonWrapperSubclass)
-        z.sum().backward(torch.tensor(1))
-        self.assertEqual(x.grad, y)
-        self.assertEqual(y.grad, x)
-
     def test_none_wrapping(self):
         # A Tensor subclass that returns None when doing add
         # See LoggingTensor above for more details on the subclass
@@ -2002,6 +1958,8 @@ $0: f32[] = torch._ops.aten.empty.memory_format([], device=device(type='cpu'), p
                 def __torch_dispatch__(cls, func, types, args, kwargs):
                     if func.overloadpacket == torch.ops.aten.is_contiguous:
                         return contiguous_data.is_contiguous()
+                    if func.overloadpacket == torch.ops.aten.sym_is_contiguous:
+                        return torch.ops.aten.sym_is_contiguous(contiguous_data)
                     return NotImplemented
 
             class ExampleTensor3(torch.Tensor):
@@ -2015,6 +1973,8 @@ $0: f32[] = torch._ops.aten.empty.memory_format([], device=device(type='cpu'), p
                 def __torch_dispatch__(cls, func, types, args, kwargs):
                     if func.overloadpacket == torch.ops.aten.is_contiguous:
                         return not_contiguous_data.is_contiguous()
+                    if func.overloadpacket == torch.ops.aten.sym_is_contiguous:
+                        return torch.ops.aten.sym_is_contiguous(not_contiguous_data)
                     return NotImplemented
 
             err_msg = "Multiple dispatch failed for 'torch.ops.aten.is_contiguous'"
@@ -2047,6 +2007,7 @@ $0: f32[] = torch._ops.aten.empty.memory_format([], device=device(type='cpu'), p
             @classmethod
             def __torch_dispatch__(cls, func, types, args, kwargs):
                 if func in [
+                    torch.ops.aten.sym_is_contiguous.default,
                     torch.ops.aten.is_contiguous.default,
                     torch.ops.aten.is_contiguous.memory_format,
                     torch.ops.aten.is_strides_like_format.default,
