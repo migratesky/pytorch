@@ -2,6 +2,8 @@
 pytest>=7.0.0
 pytest-xdist>=3.3.1  # For parallel test execution
 pytest-timeout>=2.1.0  # For test timeouts
+pytest-split>=0.8.0  # For sharding test collection across workers
+pytest-rerunfailures>=15.0  # For flaky test reruns
 pytest-cov>=4.1.0  # For coverage reporting
 pytest-html>=4.1.1  # For HTML test reports
 pytest-benchmark>=4.0.0  # For performance benchmarking

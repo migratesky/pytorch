@@ -13,6 +13,7 @@ REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 FAKE_NUMPY_DIR = os.path.join(REPO_ROOT, "fake_numpy")
 
 
+@pytest.mark.rocm_skip
 class TestWithoutNumpy(TestCase):
     """Test PyTorch functionality when NumPy is not available."""
 
