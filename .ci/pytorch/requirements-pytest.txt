@@ -1,0 +1,35 @@
+# PyTorch CI pytest requirements
+# Replaces the bloated run_test.py with standard pytest ecosystem
+
+# Core pytest
+pytest>=7.0.0
+
+# Parallel test execution (replaces custom sharding in run_test.py)
+pytest-xdist>=3.0.0
+
+# Test retries (replaces custom retry logic)
+pytest-rerunfailures>=11.0.0
+
+# Required by PyTorch's test runner (imported by torch.testing._internal.common_utils)
+expecttest>=0.3.0
+
+# Required by run_test.py dependency check in CI
+pytest-flakefinder>=1.0.0
+
+# HTML reporting (better than custom reporting)
+pytest-html>=3.0.0
+
+# Coverage integration (replaces custom coverage handling)
+pytest-cov>=4.0.0
+
+# Better output formatting
+pytest-sugar>=0.9.0
+
+# Memory profiling for performance tests
+pytest-memray>=1.0.0
+
+# Timeout handling
+pytest-timeout>=2.0.0
+
+# Plugin to run C++ (gtest/boost) tests via pytest when available
+pytest-cpp==2.6.0
