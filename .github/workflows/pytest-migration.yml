@@ -1,0 +1,71 @@
+name: PyTest Migration
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'tests/pytest_migration/**'
+      - '.github/workflows/pytest-migration.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'tests/pytest_migration/**'
+      - '.github/workflows/pytest-migration.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Start with Python 3.9+ to avoid typing issues
+        python-version: ['3.9', '3.10', '3.12']
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/pytest_migration/requirements-test.txt
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+
+      - name: Run tests
+        run: |
+          mkdir -p test-results
+          pytest -c tests/pytest_migration/pytest.ini tests/pytest_migration \
+            -v \
+            --html=test-results/report.html \
+            --self-contained-html \
+            --junitxml=test-results/junit.xml \
+            -k 'not cuda'
+            
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results-${{ matrix.python-version }}
+          path: test-results/
+
+  # This job aggregates test results
+  test-results:
+    name: Test Results
+    runs-on: ubuntu-latest
+    needs: test
+    if: always()
+
+    steps:
+      - name: Download test results
+        uses: actions/download-artifact@v4
+        with:
+          path: test-results
+
+      - name: Publish test results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          junit_files: "test-results/**/*.xml"
